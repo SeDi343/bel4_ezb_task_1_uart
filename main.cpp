@@ -16,6 +16,10 @@
 #include "mbed.h"
 #include "rtos.h"
 
+/********************************** Defines ***********************************/
+#define UARTTX P1_5
+#define UARTRX P1_4
+
 /********************************** Typedef ***********************************/
 typedef struct {
 	uint32_t counter;					/* Number of received commands */
@@ -32,7 +36,7 @@ DigitalOut led_2(LED2);			/* LED2 = P1.0 */
 DigitalIn button_1(SW1);		/* Button 1 */
 DigitalIn button_2(SW2);		/* Button 2 */
 
-Serial device(P1_5, P1_4);	/* UART -> TX = P1.5, RX = P1.4 */
+Serial device(UARTTX, UARTRX);	/* UART -> TX = P1.5, RX = P1.4 */
 
 /* Create Threads */
 Thread thread1;							/* Thread for LED1 */
@@ -53,7 +57,7 @@ void com_led_1(void)
 		while(!button_1);
 		
 		led_1 = !led_1;
-		wait(0.5);
+		Thread::wait(500);
 	}
 }
 
@@ -65,7 +69,7 @@ void com_led_2(void)
 		while(!button_2);
 		
 		led_2 = !led_2;
-		wait(0.25);
+		Thread::wait(250);
 	}
 }
 
