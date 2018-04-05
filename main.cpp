@@ -12,6 +12,8 @@
  *          Rev.: 03, 28.03.2018 - First steps to the task requirements. Add
  *                                 functions for led1 and led2 with the ontime,
  *                                 offtime and cycles
+ *          Rev.: 04, 05.04.2018 - Add communication thread, splitting the buffer
+ *                                 To different buffers.
  *
  */
 
@@ -19,6 +21,8 @@
 #include "mbed.h"
 #include "rtos.h"
 #include <string.h>
+#include <cstring>
+#include <iostream>
 
 /********************************** Defines ***********************************/
 #define UARTTX P1_5
@@ -51,7 +55,7 @@ Thread *thread_com;										/* Thread for communication */
 /* Function for LED 1 */
 void com_led_1(uint32_t ontime, uint32_t offtime, uint32_t cycle)
 {
-	uint32_t timer = 0;	
+	uint32_t timer = 0;
 	
 	while (timer != cycle)
 	{
@@ -87,6 +91,16 @@ void com_communication(void)
 	char receiver_char;
 	char receiver_buffer[BUF_SIZE];
 	uint32_t receiver_counter = 0;
+	uint32_t i = 0;
+	
+	char *savepointer;
+	char *token;
+	
+	char *number;
+	char *command;
+	char *data;
+	
+	using namespace std;
 	
 	/*
 		Configureation of the UART,
@@ -103,13 +117,14 @@ void com_communication(void)
 	while(1)
 	{
 		/* Initialize the Buffer with 0 */
-		memset(receiver_buffer, 0, BUF_SIZE));
+		memset(receiver_buffer, 0, BUF_SIZE);
 		
 		/* If the UART is readable */
 		if (device.readable())
 		{
 			/* Remove Characters until received char equals # */
-			if (receiver_char = device.getc() == '#')
+			receiver_char = device.getc();
+			if (receiver_char == '#')
 			{
 				/*
 					Read characters and write them to buffer
@@ -125,19 +140,50 @@ void com_communication(void)
 						receiver_counter++;
 					}
 				}
-
+				
 #if DEBUG
 				/* Check received data */
 				receiver_buffer[BUF_SIZE] = '\0';
 				device.printf("%s\n", receiver_buffer);
 #endif
-
+				
+				i = 0;
+				
 				/* Split string into commands */
-								
+				token = strtok_r(receiver_buffer, ":", &savepointer);
+				while (token != NULL)
+				{
+					if (i == 0)
+					{
+						number = token;
+					}
+					
+					if (i == 1)
+					{
+						command = token;
+					}
+					
+					if (i == 2)
+					{
+						data = token;
+					}
+					
+					token = strtok_r(NULL, ":", &savepointer);
+					i++;
+				}
+				
+#if DEBUG
+				device.printf("Number:  %s\n", number);
+				device.printf("Command: %s\n", command);
+				device.printf("Data:    %s\n", data);
+#endif
+				
+				
+				
 				receiver_counter = 0;
-			}
-		}
-	}
+			} /* receiver_char == '#' */
+		} /* device.readable() */
+	} /* while(1) */
 }
 
 /******************************* Main Function ********************************/
