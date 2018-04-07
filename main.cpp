@@ -18,7 +18,11 @@
  *                                 command into seperate buffers
  *          Rev.: 06, 07.04.2018 - Different Buffers are now working, connecting
  *                                 to other threads
+ *          Rev.: 07, 08.04.2018 - BL1 BL2 and RES are now working (check for
+ *                                 running threads)
  *
+ * \notes Command: only start thread if not used, Command: RES: only terminate
+ *        running threads
  */
 
 /********************************** Includes **********************************/
@@ -35,13 +39,6 @@
 
 #define DEBUG 1
 #define BUF_SIZE 16 /* 20 */
-#define DEFAULT 1000
-
-
-/********************************** Typedef ***********************************/
-typedef struct {
-	uint32_t counter;							/* Number of received commands */
-} mail_t;
 
 /********************************** Globals ***********************************/
 /*
@@ -58,37 +55,53 @@ Thread *thread_led1;									/* Thread for LED1 */
 Thread *thread_led2;									/* Thread for LED2 */
 Thread *thread_com;										/* Thread for communication */
 
+uint32_t ontime;
+uint32_t offtime;
+uint32_t cycle;
+
 /********************************* Functions **********************************/
 /* Function for LED 1 */
-void com_led_1(uint32_t ontime, uint32_t offtime, uint32_t cycle)
+void com_led_1(void)
 {
 	uint32_t timer = 0;
+	uint32_t local_ontime = ontime;
+	uint32_t local_offtime = offtime;
+	uint32_t local_cycle = cycle;
 	
-	while (timer != cycle)
+	while (timer != local_cycle)
 	{
 		led_1 = 1;
-		Thread::wait(ontime);
+		Thread::wait(local_ontime);
 		led_1 = 0;
-		Thread::wait(offtime);
+		Thread::wait(local_offtime);
 		
 		timer++;
 	}
+	
+	thread_led1->terminate();
+	delete thread_led1;
 }
 
 /* Function for LED 2 */
-void com_led_2(uint32_t ontime, uint32_t offtime, uint32_t cylce)
+void com_led_2(void)
 {
 	uint32_t timer = 0;
+	uint32_t local_ontime = ontime;
+	uint32_t local_offtime = offtime;
+	uint32_t local_cycle = cycle;
 	
-	while (timer != cylce)
+	while (timer != local_cycle)
 	{
 		led_2 = 1;
-		Thread::wait(ontime);
+		Thread::wait(local_ontime);
 		led_2 = 0;
-		Thread::wait(offtime);
+		Thread::wait(local_offtime);
 		
 		timer++;
 	}
+	
+	thread_led2->terminate();
+	delete thread_led2;
 }
 
 /* Function for UART communication */
@@ -99,6 +112,7 @@ void com_communication(void)
 	char receiver_buffer[BUF_SIZE];
 	uint32_t receiver_counter = 0;
 	uint32_t i = 0;
+	uint32_t default_value = 1000;
 	
 	char *savepointer;
 	char *token;
@@ -156,10 +170,6 @@ void com_communication(void)
 						receiver_char = device.getc();
 						receiver_buffer[receiver_counter] = receiver_char;
 						
-#if DEBUG
-						device.printf("Recognised Char %d\n", receiver_counter+1);
-#endif
-						
 						receiver_counter++;
 					}
 				}
@@ -203,7 +213,7 @@ void com_communication(void)
 				memcpy(number_buffer, (char *)number_pointer, BUF_SIZE*sizeof(char));
 				memcpy(command_buffer, (char *)command_pointer, BUF_SIZE*sizeof(char));
 				memcpy(data_buffer, (char *)data_pointer, BUF_SIZE*sizeof(char));
-				data_buffer[strlen(data_buffer)-1] = 0;
+				data_buffer[strlen(data_buffer)-1] = '\0';
 				
 #if DEBUG
 				device.printf("Number:  %s\n", number_buffer);
@@ -211,18 +221,46 @@ void com_communication(void)
 				device.printf("Data:    %s\n", data_buffer);
 #endif
 				
-				if (strncmp(command_buffer, "BL1", BUF_SIZE*sizeof(char)))
+				/* Command BL1 */
+				if (strncmp(command_buffer, "BL1", BUF_SIZE*sizeof(char)) == 0)
 				{
-					com_led_1(DEFAULT, DEFAULT, (uint32_t)atoi(data_buffer));
-				}
-
-				else if (strncmp(command_buffer, "BL2", BUF_SIZE*sizeof(char)))
-				{
-					com_led_2(DEFAULT, DEFAULT, (uint32_t)atoi(data_buffer));
+					thread_led1 = new Thread();
+					device.printf("Started BL1\n");
+					
+					ontime = default_value;
+					offtime = default_value;
+					cycle = (uint32_t)atoi(data_buffer);
+					//status = thread_led1->start(callback(com_led_1, (uint32_t *)&default_value, (uint32_t *)&default_value, (uint32_t *)&int_of_data));
+					status = thread_led1->start(com_led_1);
+					if (status != osOK)
+					{
+						error("ERROR: Thread LED1: Failed!");
+					}
 				}
 				
-				else if (strncmp(command_buffer, "TL1", BUF_SIZE*sizeof(char)))
+				/* Command BL2 */
+				else if (strncmp(command_buffer, "BL2", BUF_SIZE*sizeof(char)) == 0)
 				{
+					thread_led2 = new Thread();
+					device.printf("Started BL2\n");
+					
+					ontime = default_value;
+					offtime = default_value;
+					cycle = (uint32_t)atoi(data_buffer);
+					//status = thread_led2->start(callback(com_led_2, (uint32_t *)&default_value, (uint32_t *)&default_value, (uint32_t *)&int_of_data));
+					status = thread_led2->start(com_led_2);
+					if (status != osOK)
+					{
+						error("ERROR: Thread LED2: Failed!");
+					}
+				}
+				
+				/* Command TL1 */
+				else if (strncmp(command_buffer, "TL1", BUF_SIZE*sizeof(char)) == 0)
+				{
+					thread_led1 = new Thread();
+					device.printf("Started TL1\n");
+					
 					token = strtok_r(data_buffer, "L", &savepointer);
 					
 					memcpy(data_high_buffer, (char *)token, BUF_SIZE*sizeof(char));
@@ -230,6 +268,34 @@ void com_communication(void)
 					
 					device.printf("High Buffer: %s\n", data_high_buffer);
 					device.printf("Low Buffer:  %s\n", data_low_buffer);
+				}
+				
+				/* Command TL2 */
+				else if (strncmp(command_buffer, "TL2", BUF_SIZE*sizeof(char)) == 0)
+				{
+					thread_led2 = new Thread();
+					device.printf("Started TL2\n");
+					
+					token = strtok_r(data_buffer, "L", &savepointer);
+					
+					memcpy(data_high_buffer, (char *)token, BUF_SIZE*sizeof(char));
+					memcpy(data_low_buffer, (char *)token, BUF_SIZE*sizeof(char));
+					
+					device.printf("High Buffer: %s\n", data_high_buffer);
+					device.printf("Low Buffer:  %s\n", data_low_buffer);
+				}
+				
+				/* Command RES */
+				else if (strncmp(command_buffer, "RES", BUF_SIZE*sizeof(char)) == 0)
+				{
+					device.printf("Started RES\n");
+					
+					thread_led1->terminate();
+					thread_led2->terminate();
+					delete thread_led1;
+					delete thread_led2;
+					led_1 = 0;
+					led_2 = 0;
 				}
 			} /* receiver_char == '#' */
 		} /* device.readable() */
