@@ -14,13 +14,18 @@
  *                                 offtime and cycles
  *          Rev.: 04, 05.04.2018 - Add communication thread, splitting the buffer
  *                                 To different buffers.
+ *          Rev.: 05, 07.04.2018 - Add memcpy and memset functions to write split
+ *                                 command into seperate buffers
+ *          Rev.: 06, 07.04.2018 - Different Buffers are now working, connecting
+ *                                 to other threads
  *
  */
 
 /********************************** Includes **********************************/
 #include "mbed.h"
 #include "rtos.h"
-#include <string.h>
+#include <stdlib.h>
+#include <string>
 #include <cstring>
 #include <iostream>
 
@@ -30,6 +35,8 @@
 
 #define DEBUG 1
 #define BUF_SIZE 16 /* 20 */
+#define DEFAULT 1000
+
 
 /********************************** Typedef ***********************************/
 typedef struct {
@@ -96,9 +103,15 @@ void com_communication(void)
 	char *savepointer;
 	char *token;
 	
-	char *number;
-	char *command;
-	char *data;
+	char *number_pointer;
+	char *command_pointer;
+	char *data_pointer;
+	
+	char number_buffer[BUF_SIZE];
+	char command_buffer[BUF_SIZE];
+	char data_buffer[BUF_SIZE];
+	char data_high_buffer[BUF_SIZE];
+	char data_low_buffer[BUF_SIZE];
 	
 	using namespace std;
 	
@@ -114,10 +127,16 @@ void com_communication(void)
 	device.printf("Task 2 - Control of LED1\n");
 	device.printf("Task 3 - Control of LED2\n");
 	
-	while(1)
+	while (1)
 	{
 		/* Initialize the Buffer with 0 */
-		memset(receiver_buffer, 0, BUF_SIZE);
+		memset(receiver_buffer, 0, BUF_SIZE*sizeof(char));
+		
+		/* Reset Buffers and other variables */
+		memset(number_buffer, 0, BUF_SIZE*sizeof(char));
+		memset(command_buffer, 0, BUF_SIZE*sizeof(char));
+		memset(data_buffer, 0, BUF_SIZE*sizeof(char));
+		receiver_counter = 0;
 		
 		/* If the UART is readable */
 		if (device.readable())
@@ -130,12 +149,16 @@ void com_communication(void)
 					Read characters and write them to buffer
 					until char is $ or BUF_SIZE is reached
 				*/
-				while(receiver_char != '$' || receiver_counter == BUF_SIZE)
+				while (receiver_char != '$' && receiver_counter != BUF_SIZE)
 				{
 					if (device.readable())
 					{
 						receiver_char = device.getc();
 						receiver_buffer[receiver_counter] = receiver_char;
+						
+#if DEBUG
+						device.printf("Recognised Char %d\n", receiver_counter+1);
+#endif
 						
 						receiver_counter++;
 					}
@@ -150,37 +173,64 @@ void com_communication(void)
 				i = 0;
 				
 				/* Split string into commands */
+				/*
+					The strtok() function uses a static buffer while parsing,
+					so it's not thread safe.  Use  strtok_r()  if  this matters to you.
+				*/
 				token = strtok_r(receiver_buffer, ":", &savepointer);
 				while (token != NULL)
 				{
 					if (i == 0)
 					{
-						number = token;
+						number_pointer = token;
 					}
 					
 					if (i == 1)
 					{
-						command = token;
+						command_pointer = token;
 					}
 					
 					if (i == 2)
 					{
-						data = token;
+						data_pointer = token;
 					}
 					
 					token = strtok_r(NULL, ":", &savepointer);
 					i++;
 				}
 				
+				/* Copy splitted command into buffers */
+				memcpy(number_buffer, (char *)number_pointer, BUF_SIZE*sizeof(char));
+				memcpy(command_buffer, (char *)command_pointer, BUF_SIZE*sizeof(char));
+				memcpy(data_buffer, (char *)data_pointer, BUF_SIZE*sizeof(char));
+				data_buffer[strlen(data_buffer)-1] = 0;
+				
 #if DEBUG
-				device.printf("Number:  %s\n", number);
-				device.printf("Command: %s\n", command);
-				device.printf("Data:    %s\n", data);
+				device.printf("Number:  %s\n", number_buffer);
+				device.printf("Command: %s\n", command_buffer);
+				device.printf("Data:    %s\n", data_buffer);
 #endif
 				
+				if (strncmp(command_buffer, "BL1", BUF_SIZE*sizeof(char)))
+				{
+					com_led_1(DEFAULT, DEFAULT, (uint32_t)atoi(data_buffer));
+				}
+
+				else if (strncmp(command_buffer, "BL2", BUF_SIZE*sizeof(char)))
+				{
+					com_led_2(DEFAULT, DEFAULT, (uint32_t)atoi(data_buffer));
+				}
 				
-				
-				receiver_counter = 0;
+				else if (strncmp(command_buffer, "TL1", BUF_SIZE*sizeof(char)))
+				{
+					token = strtok_r(data_buffer, "L", &savepointer);
+					
+					memcpy(data_high_buffer, (char *)token, BUF_SIZE*sizeof(char));
+					memcpy(data_low_buffer, (char *)token, BUF_SIZE*sizeof(char));
+					
+					device.printf("High Buffer: %s\n", data_high_buffer);
+					device.printf("Low Buffer:  %s\n", data_low_buffer);
+				}
 			} /* receiver_char == '#' */
 		} /* device.readable() */
 	} /* while(1) */
