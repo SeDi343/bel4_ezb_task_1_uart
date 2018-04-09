@@ -22,13 +22,13 @@
  *                                 running threads)
  *          Rev.: 08, 09.04.2018 - Buttons keep the current process in a while(1)
  *                                 loop
+ *          Rev.: 09, 09.04.2018 - TL commands are now working
+ *          Rev.: 10, 09.04.2018 - RES now supports les OFF or ON
+ *          Rev.: 11, 09.04.2018 - Add Error_val to protect the protcol,
+ *                                 using a command without the last frame char $
+ *                                 Now we need last frame char $ to go forward
  *
- * \notes DAC, TL commands are missing
- *        running threads
- *        status = thread_led1->start(callback(com_led_1,
- *                                    (uint32_t *)&default_value,
- *                                    (uint32_t *)&default_value,
- *                                    (uint32_t *)&int_of_data)); is not working
+ * \notes DAC is missing
  */
 
 /********************************** Includes **********************************/
@@ -65,6 +65,14 @@ Thread *thread_led1;									/* Thread for LED1 */
 Thread *thread_led2;									/* Thread for LED2 */
 Thread *thread_com;										/* Thread for communication */
 
+/*
+	This globals are required, as I was trying to use the callback function
+	but it was not working for me.
+	* status = thread_led1->start(callback(com_led_1,
+	*                                     (uint32_t *)&default_value,
+	*                                     (uint32_t *)&default_value,
+	*                                     (uint32_t *)&int_of_data));
+*/
 uint32_t ontime;
 uint32_t offtime;
 uint32_t cycle;
@@ -134,6 +142,9 @@ void com_communication(void)
 	char receiver_buffer[BUF_SIZE];
 	uint32_t receiver_counter = 0;
 	uint32_t i = 0;
+	uint32_t n = 0;
+	uint32_t data_int;
+	uint32_t error_val;
 	
 	char *savepointer;
 	char *token;
@@ -146,8 +157,6 @@ void com_communication(void)
 	char number_buffer[BUF_SIZE];
 	char command_buffer[BUF_SIZE];
 	char data_buffer[BUF_SIZE];
-	char data_high_buffer[BUF_SIZE];
-	char data_low_buffer[BUF_SIZE];
 	
 	using namespace std;
 	
@@ -161,7 +170,7 @@ void com_communication(void)
 	device.printf("by Sebastian Dichler | <el16b032@technikum-wien.at>\n");
 	device.printf("Task 1 - Communication\n");
 	device.printf("Task 2 - Control of LED1\n");
-	device.printf("Task 3 - Control of LED2\n");
+	device.printf("Task 3 - Control of LED2\n\n");
 	
 	while (1)
 	{
@@ -173,6 +182,7 @@ void com_communication(void)
 		memset(command_buffer, 0, BUF_SIZE*sizeof(char));
 		memset(data_buffer, 0, BUF_SIZE*sizeof(char));
 		receiver_counter = 0;
+		error_val = 0;
 		
 		/* If the UART is readable */
 		if (device.readable())
@@ -196,180 +206,290 @@ void com_communication(void)
 					}
 				}
 				
-#if DEBUG
-				/* Check received data */
-				receiver_buffer[BUF_SIZE] = '\0';
-				device.printf("%s\n", receiver_buffer);
-#endif
-				
-				i = 0;
-				
-				/* Split string into commands */
-				/*
-					The strtok() function uses a static buffer while parsing,
-					so it's not thread safe.  Use  strtok_r()  if  this matters to you.
-				*/
-				token = strtok_r(receiver_buffer, ":", &savepointer);
-				while (token != NULL)
+				if (receiver_buffer[strlen(receiver_buffer)-1] != '$')
 				{
-					if (i == 0)
-					{
-						number_pointer = token;
-					}
-					
-					if (i == 1)
-					{
-						command_pointer = token;
-					}
-					
-					if (i == 2)
-					{
-						data_pointer = token;
-					}
-					
-					token = strtok_r(NULL, ":", &savepointer);
-					i++;
+					error_val = 1;
 				}
 				
-				/* Copy splitted command into buffers */
-				memcpy(number_buffer, (char *)number_pointer, BUF_SIZE*sizeof(char));
-				memcpy(command_buffer, (char *)command_pointer, BUF_SIZE*sizeof(char));
-				memcpy(data_buffer, (char *)data_pointer, BUF_SIZE*sizeof(char));
-				data_buffer[strlen(data_buffer)-1] = '\0';
-				
-#if DEBUG
-				device.printf("Number:  %s\n", number_buffer);
-				device.printf("Command: %s\n", command_buffer);
-				device.printf("Data:    %s\n", data_buffer);
-#endif
-				
-				/* Command BL1 */
-				if (strncmp(command_buffer, "BL1", BUF_SIZE*sizeof(char)) == 0)
+				if (error_val == 0)
 				{
-					if (thread_led1 != NULL)
-					{
-						thread_led1->terminate();
-						delete thread_led1;
-						thread_led1 = NULL;
-					}
-					thread_led1 = new Thread();
-					
 #if DEBUG
-					device.printf("Started BL1\n\n");
+					/* Check received data */
+					receiver_buffer[BUF_SIZE] = '\0';
+					device.printf("#%s\n", receiver_buffer);
 #endif
 					
-					ontime = DEFAULT;
-					offtime = DEFAULT;
-					cycle = (uint32_t)strtoul(data_buffer, &ptr, 10);
+					i = 0;
 					
-					status = thread_led1->start(com_led_1);
-					if (status != osOK)
+					/* Split string into commands */
+					/*
+						The strtok() function uses a static buffer while parsing,
+						so it's not thread safe.  Use  strtok_r()  if  this matters to you.
+					*/
+					token = strtok_r(receiver_buffer, ":", &savepointer);
+					while (token != NULL)
 					{
-						error("ERROR: Thread LED1: Failed!");
+						if (i == 0)
+						{
+							number_pointer = token;
+						}
+						
+						if (i == 1)
+						{
+							command_pointer = token;
+						}
+						
+						if (i == 2)
+						{
+							data_pointer = token;
+						}
+						
+						token = strtok_r(NULL, ":", &savepointer);
+						i++;
 					}
-				}
-				
-				/* Command BL2 */
-				else if (strncmp(command_buffer, "BL2", BUF_SIZE*sizeof(char)) == 0)
-				{
-					if (thread_led2 != NULL)
-					{
-						thread_led2->terminate();
-						delete thread_led2;
-						thread_led2 = NULL;
-					}
-					thread_led2 = new Thread();
+					
+					/* Copy splitted command into buffers */
+					memcpy(number_buffer, (char *)number_pointer, BUF_SIZE*sizeof(char));
+					memcpy(command_buffer, (char *)command_pointer, BUF_SIZE*sizeof(char));
+					memcpy(data_buffer, (char *)data_pointer, BUF_SIZE*sizeof(char));
+					data_buffer[strlen(data_buffer)-1] = '\0';
 					
 #if DEBUG
-					device.printf("Started BL2\n\n");
+					device.printf("Number:  %s\n", number_buffer);
+					device.printf("Command: %s\n", command_buffer);
+					device.printf("Data:    %s\n", data_buffer);
 #endif
 					
-					ontime = DEFAULT;
-					offtime = DEFAULT;
-					cycle = (uint32_t)strtoul(data_buffer, &ptr, 10);
-					
-					status = thread_led2->start(com_led_2);
-					if (status != osOK)
+					/* Command BL1 */
+					if (strncmp(command_buffer, "BL1", BUF_SIZE*sizeof(char)) == 0)
 					{
-						error("ERROR: Thread LED2: Failed!");
-					}
-				}
-				
-				/* Command TL1 */
-				else if (strncmp(command_buffer, "TL1", BUF_SIZE*sizeof(char)) == 0)
-				{
-					if (thread_led1 != NULL)
-					{
-						thread_led1->terminate();
-						delete thread_led1;
-						thread_led1 = NULL;
-					}
-					thread_led1 = new Thread();
-					
+						if (thread_led1 != NULL)
+						{
+							thread_led1->terminate();
+							delete thread_led1;
+							thread_led1 = NULL;
+						}
+						thread_led1 = new Thread();
+						
 #if DEBUG
-					device.printf("Started TL1\n\n");
+						device.printf("Started BL1\n\n");
 #endif
-					
-					token = strtok_r(data_buffer, "L", &savepointer);
-					
-					memcpy(data_high_buffer, (char *)token, BUF_SIZE*sizeof(char));
-					memcpy(data_low_buffer, (char *)token, BUF_SIZE*sizeof(char));
-					
-					device.printf("High Buffer: %s\n", data_high_buffer);
-					device.printf("Low Buffer:  %s\n", data_low_buffer);
-				}
-				
-				/* Command TL2 */
-				else if (strncmp(command_buffer, "TL2", BUF_SIZE*sizeof(char)) == 0)
-				{
-					if (thread_led2 != NULL)
-					{
-						thread_led2->terminate();
-						delete thread_led2;
-						thread_led2 = NULL;
+						
+						ontime = DEFAULT;
+						offtime = DEFAULT;
+						cycle = (uint32_t)strtoul(data_buffer, &ptr, 10);
+						
+						status = thread_led1->start(com_led_1);
+						if (status != osOK)
+						{
+							error("ERROR: Thread LED1: Failed!");
+						}
 					}
-					thread_led2 = new Thread();
 					
+					/* Command BL2 */
+					else if (strncmp(command_buffer, "BL2", BUF_SIZE*sizeof(char)) == 0)
+					{
+						if (thread_led2 != NULL)
+						{
+							thread_led2->terminate();
+							delete thread_led2;
+							thread_led2 = NULL;
+						}
+						thread_led2 = new Thread();
+						
 #if DEBUG
-					device.printf("Started TL2\n\n");
+						device.printf("Started BL2\n\n");
 #endif
+						
+						ontime = DEFAULT;
+						offtime = DEFAULT;
+						cycle = (uint32_t)strtoul(data_buffer, &ptr, 10);
+						
+						status = thread_led2->start(com_led_2);
+						if (status != osOK)
+						{
+							error("ERROR: Thread LED2: Failed!");
+						}
+					}
 					
-					token = strtok_r(data_buffer, "L", &savepointer);
-					
-					memcpy(data_high_buffer, (char *)token, BUF_SIZE*sizeof(char));
-					memcpy(data_low_buffer, (char *)token, BUF_SIZE*sizeof(char));
-					
-					device.printf("High Buffer: %s\n", data_high_buffer);
-					device.printf("Low Buffer:  %s\n", data_low_buffer);
-				}
-				
-				/* Command RES */
-				else if (strncmp(command_buffer, "RES", BUF_SIZE*sizeof(char)) == 0)
-				{
-					
+					/* Command TL1 */
+					else if (strncmp(command_buffer, "TL1", BUF_SIZE*sizeof(char)) == 0)
+					{
+						if (thread_led1 != NULL)
+						{
+							thread_led1->terminate();
+							delete thread_led1;
+							thread_led1 = NULL;
+						}
+						thread_led1 = new Thread();
+						
+						token = data_buffer;
+						n = 0;
+						
+						if (data_buffer[0] == 'H')
+						{
+							while ((token = strtok_r(token, "HL", &savepointer)) != NULL)
+							{
+								data_int = (uint32_t)strtoul(token, &ptr, 10);
+								
+								if (n == 0)
+								{
+									ontime = data_int;
+								}
+								
+								if (n == 1)
+								{
+									offtime = data_int;
+								}
+								
+								token = NULL;
+								n++;
+							}
+						}
+						
+						if (data_buffer[0] == 'L')
+						{
+							while ((token = strtok_r(token, "LH", &savepointer)) != NULL)
+							{
+								data_int = (uint32_t)strtoul(token, &ptr, 10);
+								
+								if (n == 0)
+								{
+									offtime = data_int;
+								}
+								
+								if (n == 1)
+								{
+									ontime = data_int;
+								}
+								
+								token = NULL;
+								n++;
+							}
+						}
+						
+						cycle = 1000;
+						
+						status = thread_led1->start(com_led_1);
+						if (status != osOK)
+						{
+							error("ERROR: Thread LED2: Failed!");
+						}
+						
 #if DEBUG
-					device.printf("Started RES\n");
+						device.printf("Started TL1\n\n");
 #endif
-					if (thread_led1 != NULL)
-					{
-						device.printf("Reseted Thread 1\n");
-						thread_led1->terminate();
-						delete thread_led1;
-						thread_led1 = NULL;
-						led_1 = 0;
+						
 					}
 					
-					if (thread_led2 != NULL)
+					/* Command TL2 */
+					else if (strncmp(command_buffer, "TL2", BUF_SIZE*sizeof(char)) == 0)
 					{
-						device.printf("Reseted Thread 2\n");
-						thread_led2->terminate();
-						delete thread_led2;
-						thread_led2 = NULL;
-						led_2 = 0;
+						if (thread_led2 != NULL)
+						{
+							thread_led2->terminate();
+							delete thread_led2;
+							thread_led2 = NULL;
+						}
+						thread_led2 = new Thread();
+						
+						token = data_buffer;
+						n = 0;
+						
+						if (data_buffer[0] == 'H')
+						{
+							while ((token = strtok_r(token, "HL", &savepointer)) != NULL)
+							{
+								data_int = (uint32_t)strtoul(token, &ptr, 10);
+								
+								if (n == 0)
+								{
+									ontime = data_int;
+								}
+								
+								if (n == 1)
+								{
+									offtime = data_int;
+								}
+								
+								token = NULL;
+								n++;
+							}
+						}
+						
+						if (data_buffer[0] == 'L')
+						{
+							while ((token = strtok_r(token, "LH", &savepointer)) != NULL)
+							{
+								data_int = (uint32_t)strtoul(token, &ptr, 10);
+								
+								if (n == 0)
+								{
+									offtime = data_int;
+								}
+								
+								if (n == 1)
+								{
+									ontime = data_int;
+								}
+								
+								token = NULL;
+								n++;
+							}
+						}
+						
+						cycle = 1000;
+						
+						status = thread_led2->start(com_led_2);
+						if (status != osOK)
+						{
+							error("ERROR: Thread LED2: Failed!");
+						}
+						
+#if DEBUG
+						device.printf("Started TL2\n\n");
+#endif
+						
 					}
 					
-					device.printf("\n");
-				}
+					/* Command RES */
+					else if (strncmp(command_buffer, "RES", BUF_SIZE*sizeof(char)) == 0)
+					{
+						
+#if DEBUG
+						device.printf("Started RES\n");
+#endif
+						if (thread_led1 != NULL)
+						{
+							device.printf("NOT DONE Task 1\n");
+							thread_led1->terminate();
+							delete thread_led1;
+							thread_led1 = NULL;
+						}
+						
+						if (thread_led2 != NULL)
+						{
+							device.printf("NOT DONE Task 2\n");
+							thread_led2->terminate();
+							delete thread_led2;
+							thread_led2 = NULL;
+						}
+						
+						if (strncmp(data_buffer, "ON", BUF_SIZE*sizeof(char)) == 0)
+						{
+							led_1 = 1;
+							led_2 = 1;
+						}
+						
+						if (strncmp(data_buffer, "OFF", BUF_SIZE*sizeof(char)) == 0)
+						{
+							led_1 = 0;
+							led_2 = 0;
+						}
+						
+						device.printf("\n");
+					}
+				} /* error_val == 0 */
 			} /* receiver_char == '#' */
 		} /* device.readable() */
 	} /* while(1) */
