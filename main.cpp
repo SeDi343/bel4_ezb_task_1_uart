@@ -20,9 +20,15 @@
  *                                 to other threads
  *          Rev.: 07, 08.04.2018 - BL1 BL2 and RES are now working (check for
  *                                 running threads)
+ *          Rev.: 08, 09.04.2018 - Buttons keep the current process in a while(1)
+ *                                 loop
  *
- * \notes Command: only start thread if not used, Command: RES: only terminate
+ * \notes DAC, TL commands are missing
  *        running threads
+ *        status = thread_led1->start(callback(com_led_1,
+ *                                    (uint32_t *)&default_value,
+ *                                    (uint32_t *)&default_value,
+ *                                    (uint32_t *)&int_of_data)); is not working
  */
 
 /********************************** Includes **********************************/
@@ -39,6 +45,7 @@
 
 #define DEBUG 1
 #define BUF_SIZE 16 /* 20 */
+#define DEFAULT 1000
 
 /********************************** Globals ***********************************/
 /*
@@ -47,6 +54,9 @@
 */
 DigitalOut led_1(LED1);					/* LED1 = P1.1 */
 DigitalOut led_2(LED2);					/* LED2 = P1.0 */
+
+DigitalIn button_1(SW1);				/* Button 1 */
+DigitalIn button_2(SW2);				/* Button 2 */
 
 Serial device(UARTTX, UARTRX);	/* UART -> TX = P1.5, RX = P1.4 */
 
@@ -70,8 +80,13 @@ void com_led_1(void)
 	
 	while (timer != local_cycle)
 	{
+		while (!button_1);
+		
 		led_1 = 1;
 		Thread::wait(local_ontime);
+		
+		while (!button_1);
+		
 		led_1 = 0;
 		Thread::wait(local_offtime);
 		
@@ -80,6 +95,7 @@ void com_led_1(void)
 	
 	thread_led1->terminate();
 	delete thread_led1;
+	thread_led1 = NULL;
 }
 
 /* Function for LED 2 */
@@ -92,8 +108,13 @@ void com_led_2(void)
 	
 	while (timer != local_cycle)
 	{
+		while (!button_2);
+		
 		led_2 = 1;
 		Thread::wait(local_ontime);
+		
+		while (!button_2);
+		
 		led_2 = 0;
 		Thread::wait(local_offtime);
 		
@@ -102,6 +123,7 @@ void com_led_2(void)
 	
 	thread_led2->terminate();
 	delete thread_led2;
+	thread_led2 = NULL;
 }
 
 /* Function for UART communication */
@@ -112,7 +134,6 @@ void com_communication(void)
 	char receiver_buffer[BUF_SIZE];
 	uint32_t receiver_counter = 0;
 	uint32_t i = 0;
-	uint32_t default_value = 1000;
 	
 	char *savepointer;
 	char *token;
@@ -120,6 +141,7 @@ void com_communication(void)
 	char *number_pointer;
 	char *command_pointer;
 	char *data_pointer;
+	char *ptr;
 	
 	char number_buffer[BUF_SIZE];
 	char command_buffer[BUF_SIZE];
@@ -224,13 +246,22 @@ void com_communication(void)
 				/* Command BL1 */
 				if (strncmp(command_buffer, "BL1", BUF_SIZE*sizeof(char)) == 0)
 				{
+					if (thread_led1 != NULL)
+					{
+						thread_led1->terminate();
+						delete thread_led1;
+						thread_led1 = NULL;
+					}
 					thread_led1 = new Thread();
-					device.printf("Started BL1\n");
 					
-					ontime = default_value;
-					offtime = default_value;
-					cycle = (uint32_t)atoi(data_buffer);
-					//status = thread_led1->start(callback(com_led_1, (uint32_t *)&default_value, (uint32_t *)&default_value, (uint32_t *)&int_of_data));
+#if DEBUG
+					device.printf("Started BL1\n\n");
+#endif
+					
+					ontime = DEFAULT;
+					offtime = DEFAULT;
+					cycle = (uint32_t)strtoul(data_buffer, &ptr, 10);
+					
 					status = thread_led1->start(com_led_1);
 					if (status != osOK)
 					{
@@ -241,13 +272,22 @@ void com_communication(void)
 				/* Command BL2 */
 				else if (strncmp(command_buffer, "BL2", BUF_SIZE*sizeof(char)) == 0)
 				{
+					if (thread_led2 != NULL)
+					{
+						thread_led2->terminate();
+						delete thread_led2;
+						thread_led2 = NULL;
+					}
 					thread_led2 = new Thread();
-					device.printf("Started BL2\n");
 					
-					ontime = default_value;
-					offtime = default_value;
-					cycle = (uint32_t)atoi(data_buffer);
-					//status = thread_led2->start(callback(com_led_2, (uint32_t *)&default_value, (uint32_t *)&default_value, (uint32_t *)&int_of_data));
+#if DEBUG
+					device.printf("Started BL2\n\n");
+#endif
+					
+					ontime = DEFAULT;
+					offtime = DEFAULT;
+					cycle = (uint32_t)strtoul(data_buffer, &ptr, 10);
+					
 					status = thread_led2->start(com_led_2);
 					if (status != osOK)
 					{
@@ -258,8 +298,17 @@ void com_communication(void)
 				/* Command TL1 */
 				else if (strncmp(command_buffer, "TL1", BUF_SIZE*sizeof(char)) == 0)
 				{
+					if (thread_led1 != NULL)
+					{
+						thread_led1->terminate();
+						delete thread_led1;
+						thread_led1 = NULL;
+					}
 					thread_led1 = new Thread();
-					device.printf("Started TL1\n");
+					
+#if DEBUG
+					device.printf("Started TL1\n\n");
+#endif
 					
 					token = strtok_r(data_buffer, "L", &savepointer);
 					
@@ -273,8 +322,17 @@ void com_communication(void)
 				/* Command TL2 */
 				else if (strncmp(command_buffer, "TL2", BUF_SIZE*sizeof(char)) == 0)
 				{
+					if (thread_led2 != NULL)
+					{
+						thread_led2->terminate();
+						delete thread_led2;
+						thread_led2 = NULL;
+					}
 					thread_led2 = new Thread();
-					device.printf("Started TL2\n");
+					
+#if DEBUG
+					device.printf("Started TL2\n\n");
+#endif
 					
 					token = strtok_r(data_buffer, "L", &savepointer);
 					
@@ -288,14 +346,29 @@ void com_communication(void)
 				/* Command RES */
 				else if (strncmp(command_buffer, "RES", BUF_SIZE*sizeof(char)) == 0)
 				{
-					device.printf("Started RES\n");
 					
-					thread_led1->terminate();
-					thread_led2->terminate();
-					delete thread_led1;
-					delete thread_led2;
-					led_1 = 0;
-					led_2 = 0;
+#if DEBUG
+					device.printf("Started RES\n");
+#endif
+					if (thread_led1 != NULL)
+					{
+						device.printf("Reseted Thread 1\n");
+						thread_led1->terminate();
+						delete thread_led1;
+						thread_led1 = NULL;
+						led_1 = 0;
+					}
+					
+					if (thread_led2 != NULL)
+					{
+						device.printf("Reseted Thread 2\n");
+						thread_led2->terminate();
+						delete thread_led2;
+						thread_led2 = NULL;
+						led_2 = 0;
+					}
+					
+					device.printf("\n");
 				}
 			} /* receiver_char == '#' */
 		} /* device.readable() */
